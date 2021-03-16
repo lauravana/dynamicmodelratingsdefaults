@@ -4,8 +4,8 @@ This repository contains code and a synthetic data set for reproducing the model
 
 ## Data set
 
-The synthetic data set `dat_syn` has been generated using 
-the synthpop R package (Nowok et. al, 2016) by replacing all observations
+The synthetic data set `synthetic_dat.rda` has been generated using 
+the **synthpop** R package (Nowok et. al, 2016) by replacing all observations
 with values simulated from probability distributions specified to 
 preserve key features of the actual observed data.
 
@@ -15,7 +15,7 @@ The data set contains 19952 rows and 13 columns:
 
 * `year_id`: integer containing the year id
 
-* `R1`: integers corresponding to the rating classes assigned by rater 1
+* `R1`: integer corresponding to the rating classes assigned by rater 1
 
 * `R2`: integer corresponding to the rating classes assigned by rater 2
 
@@ -27,7 +27,7 @@ The data set contains 19952 rows and 13 columns:
 
 
 
-# References
+## References
   Beata Nowok, Gillian M. Raab, Chris Dibben (2016). synthpop: Bespoke
   Creation of Synthetic Data in R. Journal of Statistical Software,
   74(11), 1-26. doi:10.18637/jss.v074.i11
