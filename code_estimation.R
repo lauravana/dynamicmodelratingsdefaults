@@ -49,6 +49,7 @@ models <- list(
                 "a", "q", 
                 "b", "omega", "phi",
                 "rho", "psi",
+                "delta", "lambda",
                 "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")))
 
 
@@ -60,7 +61,7 @@ models <- list(
 # likelihoods for the following year t + 1
 
 for (t in 13:19) {
-   for (s in 1:length(models)){
+   for (s in 5:length(models)){
       # select only observations in years 1:(t + 1)
       dat_tmp <- subset(dat, year_id %in% seq_len(t + 1))
       dat_tmp$firm_id <- as.numeric(factor(dat_tmp$firm))

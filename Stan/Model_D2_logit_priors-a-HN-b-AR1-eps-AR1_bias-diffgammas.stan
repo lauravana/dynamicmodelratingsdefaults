@@ -254,13 +254,13 @@ generated quantities {
         log_lik_D_test[n]  = bernoulli_logit_lpmf(D_test[n]  | S_test[n]);
      }
      for (n in 1:NR1_test){
-        log_lik_R1_test[n]  = ordered_logistic_lpmf(y1_test[n] | SR_test[id_obs_R1_test[n]], theta1);
+        log_lik_R1_test[n]  = ordered_logistic_lpmf(y1_test[n] | S1_test[id_obs_R1_test[n]], theta1);
      }  
      for (n in 1:NR2_test){
-        log_lik_R2_test[n]  = ordered_logistic_lpmf(y2_test[n] | SR_test[id_obs_R2_test[n]], theta2);
+        log_lik_R2_test[n]  = ordered_logistic_lpmf(y2_test[n] | S2_test[id_obs_R2_test[n]], theta2);
      }
      for (n in 1:NR3_test){
-        log_lik_R3_test[n]  = ordered_logistic_lpmf(y3_test[n] | SR_test[id_obs_R3_test[n]], theta3);
+        log_lik_R3_test[n]  = ordered_logistic_lpmf(y3_test[n] | S3_test[id_obs_R3_test[n]], theta3);
      }
   }
 }

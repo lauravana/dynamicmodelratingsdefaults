@@ -131,7 +131,7 @@ parameters {
   simplex[K2] pi2;
   simplex[K3] pi3;
   // ** Standard deviation parameters **
-  vector[H] tau; // local shrinkage parameter
+  vector[I] tau; // local shrinkage parameter
   real<lower=0> q; 
   real<lower=0> omega; 
   real<lower=0> psi; 
@@ -143,7 +143,7 @@ parameters {
   real<lower = 0, upper = 1> phistar;
   real<lower = 0, upper = 1> phideltastar;
   // ** Random effects **
-  vector[H] a_raw;
+  vector[I] a_raw;
   vector[T] b_raw;
   vector[N] e_raw;
 }
@@ -229,9 +229,9 @@ model {
 
   // *** Random effects ***  
   // 1) firm effects
-  target += inv_gamma_lpdf(Q | 0.5, 0.5); 
+  target += inv_gamma_lpdf(q | 0.5, 0.5); 
   target += std_normal_lpdf(a_raw); 
-  target += normal_lpdf(tau| 0, Q); 
+  target += normal_lpdf(tau | 0, q); 
 
   // 2) time effects - market factor
   target += beta_lpdf(phistar | 20, 1.5);  
