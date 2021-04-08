@@ -60,11 +60,13 @@ models <- list(
 # data containing years 1 : t and check the log predictive 
 # likelihoods for the following year t + 1
 
-for (t in 13:19) {
-   for (s in 5:length(models)){
+end_of_training_samples <- 19
+
+for (t in end_of_training_samples) {
+   for (s in 5) {# seq_along()){
       # select only observations in years 1:(t + 1)
       dat_tmp <- subset(dat, year_id %in% seq_len(t + 1))
-      dat_tmp$firm_id <- as.numeric(factor(dat_tmp$firm))
+      dat_tmp$firm_id <- as.numeric(factor(dat_tmp$firm_id))
       
       id_train <- which(dat_tmp$year_id <= t)
       id_test  <- which(dat_tmp$year_id ==  t + 1)
@@ -131,8 +133,8 @@ for (t in 13:19) {
       fit <- stan(file = models[[s]][["model"]],
                   pars = models[[s]][["pars"]],
                   data = DATA, 
-                  chains = 3, 
-                  iter = 10L, 
+                  chains = 1, 
+                  iter = 100L, 
                   save_warmup = FALSE, 
                   control=list(adapt_delta = 0.99))
       

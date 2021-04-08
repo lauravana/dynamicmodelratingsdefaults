@@ -211,10 +211,28 @@ model {
 }
 
 generated quantities {
+  vector[N1] log_lik_D;
+  vector[NR1_train] log_lik_R1;
+  vector[NR2_train] log_lik_R2;
+  vector[NR3_train] log_lik_R3;
   vector[N2] log_lik_D_test;
   vector[NR1_test] log_lik_R1_test;
   vector[NR2_test] log_lik_R2_test;
   vector[NR3_test] log_lik_R3_test;
+
+  for (n in 1:N1){
+    log_lik_D[n]  = bernoulli_logit_lpmf(D_train[n] | S[n]);
+  }
+  for (n in 1:NR1_train) {
+    log_lik_R1[n] = ordered_logistic_lpmf(y1_train[n] | S1[id_obs_R1_train[n]], theta1);
+  } 
+  for (n in 1:NR2_train) {
+    log_lik_R2[n] = ordered_logistic_lpmf(y2_train[n] | S2[id_obs_R2_train[n]], theta2);
+  } 
+  for (n in 1:NR3_train) {
+    log_lik_R3[n] = ordered_logistic_lpmf(y3_train[n] | S3[id_obs_R3_train[n]], theta3);
+  } 
+
   if (N2 != 0) {
      for (n in 1:N2){
         log_lik_D_test[n]  = bernoulli_logit_lpmf(D_test[n]  | S_test[n]);
