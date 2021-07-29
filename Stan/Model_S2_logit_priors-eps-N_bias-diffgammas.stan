@@ -1,4 +1,29 @@
 functions {
+   real induced_dirichlet_lpdf(vector c, vector alpha, real phi) {
+    int K = num_elements(c) + 1;
+    vector[K - 1] sigma = inv_logit(phi - c);
+    vector[K] p;
+    matrix[K, K] J = rep_matrix(0, K, K);
+    
+    // Induced ordinal probabilities
+    p[1] = 1 - sigma[1];
+    for (k in 2:(K - 1))
+      p[k] = sigma[k - 1] - sigma[k];
+    p[K] = sigma[K - 1];
+    
+    // Baseline column of Jacobian
+    for (k in 1:K) J[k, 1] = 1;
+    
+    // Diagonal entries of Jacobian
+    for (k in 2:K) {
+      real rho = sigma[k - 1] * (1 - sigma[k - 1]);
+      J[k, k] = - rho;
+      J[k - 1, k] = rho;
+    }
+    
+    return   dirichlet_lpdf(p | alpha)
+           + log_determinant(J);
+  }
   /* compute the cholesky factor of an AR1 correlation matrix
    * Args: 
    *   ar: AR1 autocorrelation 
@@ -121,14 +146,16 @@ data {
 parameters {
   // ** Regression coefficients ** 
   vector[P] beta;
-  vector[P] beta1;
-  vector[P] beta2;
-  vector[P] beta3;
+  vector[P] gamma1;
+  vector[P] gamma2;
+  vector[P] gamma3;
   real beta0;
   // ** Cutpoints ** 
-  simplex[K1] pi1;
-  simplex[K2] pi2;
-  simplex[K3] pi3;
+  ordered[K1 - 1] theta1; // thresholds R1 + beta0
+  ordered[K2 - 1] theta2; // thresholds R2 + beta0
+  ordered[K3 - 1] theta3; // thresholds R3 + beta0
+
+
   // ** Standard deviation parameters **
   real<lower=0> psi; 
   // ** Raw random effects (iid) **
@@ -136,26 +163,20 @@ parameters {
 }
 
 transformed parameters {
+  // Train set quantities
   vector[N1] S;
-  vector[N1] S1;
-  vector[N1] S2;
-  vector[N1] S3;
   vector[N1] u_train;
+  vector[N1] SR1;
+  vector[N1] SR2;
+  vector[N1] SR3;
+  // Test set quantities
   vector[N2] S_test;
-  vector[N2] S1_test;
-  vector[N2] S2_test;
-  vector[N2] S3_test;
   vector[N2] u_test;
+  vector[N2] SR1_test;
+  vector[N2] SR2_test;
+  vector[N2] SR3_test;
+  // Random effects
   vector[N] epsilon;
-  vector[K1 - 1] theta1; // thresholds R1 
-  vector[K2 - 1] theta2; // thresholds R2
-  vector[K3 - 1] theta3; // thresholds R3
-
- 
-  // ** Cutpoints **
-  theta1 = make_cutpoints(pi1);
-  theta2 = make_cutpoints(pi2);
-  theta3 = make_cutpoints(pi3);
 
   // idiosyncratic normal effects;
   epsilon = psi * e_raw;
@@ -164,30 +185,29 @@ transformed parameters {
   u_train = epsilon[1:N1];
   u_test  = epsilon[id_test];
   
-  S  = beta0 + x_train * beta + u_train; 
-  S1 = x_train * beta1 + u_train; 
-  S2 = x_train * beta2 + u_train; 
-  S3 = x_train * beta3 + u_train; 
-
+  S   = beta0 + x_train * beta + u_train; 
+  SR1 = S + x_train * gamma1; //beta0 + x_train * beta1 + u_train; 
+  SR2 = S + x_train * gamma2; //beta0 + x_train * beta2 + u_train; 
+  SR3 = S + x_train * gamma3; // beta0 + x_train * beta3 + u_train; 
   if (N2 != 0) {
-    S_test  = beta0 + x_test * beta + u_test;
-    S1_test =         x_test * beta1 + u_test;
-    S2_test =         x_test * beta2 + u_test;
-    S3_test =         x_test * beta3 + u_test;
+    S_test   = beta0 + x_test * beta + u_test;
+    SR1_test = S_test + x_test * gamma1;
+    SR2_test = S_test + x_test * gamma2;
+    SR3_test = S_test + x_test * gamma3;
   }
 }
 
 model {
   // *** Priors *** 
   target += student_t_lpdf(beta | 4, 0, 1);
-  target += student_t_lpdf(beta1| 4, 0, 1);
-  target += student_t_lpdf(beta2| 4, 0, 1);
-  target += student_t_lpdf(beta3| 4, 0, 1);
-
-  target += student_t_lpdf(beta0| 4, 0, 2);
-  target += dirichlet_lpdf(pi1 | prior_counts_R1);
-  target += dirichlet_lpdf(pi2 | prior_counts_R2);
-  target += dirichlet_lpdf(pi3 | prior_counts_R3);
+  target += student_t_lpdf(gamma1 | 4, 0, 1);
+  target += student_t_lpdf(gamma2 | 4, 0, 1);
+  target += student_t_lpdf(gamma3 | 4, 0, 1);
+  target += student_t_lpdf(beta0| 4, 0, 1);
+  
+  target += induced_dirichlet_lpdf(theta1 | rep_vector(1, K1), 0);
+  target += induced_dirichlet_lpdf(theta2 | rep_vector(1, K2), 0);
+  target += induced_dirichlet_lpdf(theta3 | rep_vector(1, K3), 0);
 
   // *** Random effects ***  
   // 1) idiosyncratic effects
@@ -198,53 +218,77 @@ model {
   target += bernoulli_logit_lpmf(D_train| S);
   // * 2) Ordinal outcome rater R1 * 
   for (i in 1:NR1_train) {
-    target += ordered_logistic_lpmf(y1_train[i] | S1[id_obs_R1_train[i]], theta1);
+    target += ordered_logistic_lpmf(y1_train[i] | SR1[id_obs_R1_train[i]], theta1);
   }   
   // * 3) Ordinal outcome rater R2 * 
   for (i in 1:NR2_train) {
-    target += ordered_logistic_lpmf(y2_train[i] | S2[id_obs_R2_train[i]], theta2);
+    target += ordered_logistic_lpmf(y2_train[i] | SR2[id_obs_R2_train[i]], theta2);
   } 
   // * 4) Ordinal outcome rater R3 * 
   for (i in 1:NR3_train) {
-    target += ordered_logistic_lpmf(y3_train[i] | S3[id_obs_R3_train[i]], theta3);
+    target += ordered_logistic_lpmf(y3_train[i] | SR3[id_obs_R3_train[i]], theta3);
   } 
 }
 
 generated quantities {
+  vector[N1] log_lik_all;
   vector[N1] log_lik_D;
+  vector[N1] log_lik_R1_with_NA;
+  vector[N1] log_lik_R2_with_NA;
+  vector[N1] log_lik_R3_with_NA;
   vector[NR1_train] log_lik_R1;
   vector[NR2_train] log_lik_R2;
   vector[NR3_train] log_lik_R3;
+  vector[N2] log_lik_all_test;
   vector[N2] log_lik_D_test;
+  vector[N2] log_lik_R1_with_NA_test;
+  vector[N2] log_lik_R2_with_NA_test;
+  vector[N2] log_lik_R3_with_NA_test;
   vector[NR1_test] log_lik_R1_test;
   vector[NR2_test] log_lik_R2_test;
   vector[NR3_test] log_lik_R3_test;
+  
 
+  log_lik_R1_with_NA = rep_vector(0, N1);
+  log_lik_R2_with_NA = rep_vector(0, N1);
+  log_lik_R3_with_NA = rep_vector(0, N1);
+  for (n in 1:NR1_train) {
+    log_lik_R1[n] = ordered_logistic_lpmf(y1_train[n] | SR1[id_obs_R1_train[n]], theta1);
+    log_lik_R1_with_NA[id_obs_R1_train[n]] = log_lik_R1[n];
+  } 
+  for (n in 1:NR2_train) {
+    log_lik_R2[n] = ordered_logistic_lpmf(y2_train[n] | SR2[id_obs_R2_train[n]], theta2);
+    log_lik_R2_with_NA[id_obs_R2_train[n]] = log_lik_R2[n];
+  } 
+  for (n in 1:NR3_train) {
+    log_lik_R3[n] = ordered_logistic_lpmf(y3_train[n] | SR3[id_obs_R3_train[n]], theta3);
+    log_lik_R3_with_NA[id_obs_R3_train[n]] = log_lik_R3[n];
+  } 
   for (n in 1:N1){
     log_lik_D[n]  = bernoulli_logit_lpmf(D_train[n] | S[n]);
   }
-  for (n in 1:NR1_train) {
-    log_lik_R1[n] = ordered_logistic_lpmf(y1_train[n] | S1[id_obs_R1_train[n]], theta1);
-  } 
-  for (n in 1:NR2_train) {
-    log_lik_R2[n] = ordered_logistic_lpmf(y2_train[n] | S2[id_obs_R2_train[n]], theta2);
-  } 
-  for (n in 1:NR3_train) {
-    log_lik_R3[n] = ordered_logistic_lpmf(y3_train[n] | S3[id_obs_R3_train[n]], theta3);
-  } 
+  log_lik_all = log_lik_D + log_lik_R1_with_NA + log_lik_R2_with_NA + log_lik_R3_with_NA;
+
 
   if (N2 != 0) {
+     log_lik_R1_with_NA_test = rep_vector(0, N2);
+     log_lik_R2_with_NA_test = rep_vector(0, N2);
+     log_lik_R3_with_NA_test = rep_vector(0, N2);
      for (n in 1:N2){
         log_lik_D_test[n]  = bernoulli_logit_lpmf(D_test[n]  | S_test[n]);
      }
      for (n in 1:NR1_test){
-        log_lik_R1_test[n]  = ordered_logistic_lpmf(y1_test[n] | S1_test[id_obs_R1_test[n]], theta1);
+        log_lik_R1_test[n]  = ordered_logistic_lpmf(y1_test[n] | SR1_test[id_obs_R1_test[n]], theta1);
+        log_lik_R1_with_NA_test[id_obs_R1_test[n]] = log_lik_R1_test[n];
      }  
      for (n in 1:NR2_test){
-        log_lik_R2_test[n]  = ordered_logistic_lpmf(y2_test[n] | S2_test[id_obs_R2_test[n]], theta2);
+        log_lik_R2_test[n]  = ordered_logistic_lpmf(y2_test[n] | SR2_test[id_obs_R2_test[n]], theta2);
+        log_lik_R2_with_NA_test[id_obs_R2_test[n]] = log_lik_R2_test[n];
      }
      for (n in 1:NR3_test){
-        log_lik_R3_test[n]  = ordered_logistic_lpmf(y3_test[n] | S3_test[id_obs_R3_test[n]], theta3);
+        log_lik_R3_test[n]  = ordered_logistic_lpmf(y3_test[n] | SR3_test[id_obs_R3_test[n]], theta3);
+        log_lik_R3_with_NA_test[id_obs_R3_test[n]] = log_lik_R3_test[n];
      }
+     log_lik_all_test = log_lik_D_test + log_lik_R1_with_NA_test + log_lik_R2_with_NA_test + log_lik_R3_with_NA_test;
   }
 }

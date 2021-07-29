@@ -1,6 +1,6 @@
 # Dynamic model of corporate credit ratings and defaults
 
-This repository contains code and a synthetic data set for reproducing the modeling framework in Vana and Hornik (2020).
+This repository contains code and a synthetic data set for reproducing the modeling framework in [Vana and Hornik (2020)](https://zk35.org/assets/pdfs/VanaHornik2020WP.pdf).
 
 ## Data set
 
@@ -44,7 +44,7 @@ The code creates a folder `results` which contains subfolders with the model nam
 ## References
   Beata Nowok, Gillian M. Raab, Chris Dibben (2016). synthpop: Bespoke
   Creation of Synthetic Data in R. Journal of Statistical Software,
-  74(11), 1-26. doi:10.18637/jss.v074.i11
+  74(11), 1-26. [doi:10.18637/jss.v074.i11](https://doi.org/10.18637/jss.v074.i11)
 
   Stan Development Team (2020). RStan: the R interface to Stan. R
   package version 2.19.3. http://mc-stan.org/.

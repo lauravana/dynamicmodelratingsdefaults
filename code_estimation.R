@@ -16,41 +16,46 @@ models <- list(
       model = "Stan/Model_S1_logit_priors-eps-N_bias-0.stan",
       pars  = c("beta", "beta0",
                 "theta1", "theta2", "theta3",
-                "psi",
+                "psi", 
+		"log_lik_all", 
                 "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")),
    list(## Model S2
       model = "Stan/Model_S2_logit_priors-eps-N_bias-diffgammas.stan",
-      pars  = c("beta", "beta1", "beta2", "beta3", "beta0", # gammaj = beta - betaj
+      pars  = c("beta", "gamma1", "gamma2", "gamma3",  "beta0", 
                 "theta1", "theta2", "theta3",
                 "psi",
-                "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")),
+                "log_lik_all", 
+		"log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")),
    list(## Model D1
       model = "Stan/Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0.stan",
       pars  = c("beta", "beta0", 
                 "theta1", "theta2", "theta3",
-                "a", "q",
+                "q2",
                 "b", "omega", "phi",
                 "rho", "psi",
-                "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+                "log_lik_all", 
+		"log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
       )),
    list(## Model D2
       model = "Stan/Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas.stan",
-      pars  = c("beta", "beta1", "beta2", "beta3", "beta0", # gammaj = beta - betaj
+      pars  = c("beta", "gamma1", "gamma2", "gamma3",  "beta0",
                 "theta1", "theta2", "theta3",
-                "a", "q", 
+                "q2", 
                 "b", "omega", "phi", 
                 "rho", "psi",
-                "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+                "log_lik_all", 
+		"log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
       )),
    list(## Model PM
       model = "Stan/Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1.stan",
-      pars  = c("beta","beta1","beta2","beta3", "beta0",
+      pars  = c("beta", "gamma1", "gamma2", "gamma3", "beta0",
                 "theta1", "theta2", "theta3",
-                "a", "q", 
+		"q2", 
                 "b", "omega", "phi",
                 "rho", "psi",
-                "delta", "lambda",
-                "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")))
+                "delta", "lambda", "phidelta",
+                "log_lik_all", 
+		"log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")))
 
 
 ##############################
@@ -61,9 +66,9 @@ models <- list(
 # likelihoods for the following year t + 1
 
 end_of_training_samples <- 19
-
+number_of_models        <- length(models)
 for (t in end_of_training_samples) {
-   for (s in 5) {# seq_along()){
+   for (s in seq_len(number_of_models)){
       # select only observations in years 1:(t + 1)
       dat_tmp <- subset(dat, year_id %in% seq_len(t + 1))
       dat_tmp$firm_id <- as.numeric(factor(dat_tmp$firm_id))
@@ -128,7 +133,16 @@ for (t in end_of_training_samples) {
          x_train = dat_tmp[id_train, grep("X", colnames(dat_tmp))], 
          x_test  = dat_tmp[id_test , grep("X", colnames(dat_tmp))]
       )
-      
+      # ------------- prepare files and folders ---------------       
+      model_name <- gsub("Stan/", "", gsub("\\..*", "", models[[s]][["model"]]))
+      res_folder <- paste0("results/", model_name, collapse = "/")
+      if (!dir.exists(res_folder)) dir.create(res_folder, recursive = TRUE)
+      if (t == max(dat$year_id)) {
+          file_out <- paste0(res_folder, "/", sprintf("results_%s_fullsample.rda", model_name))
+	  pars <- gsub("_test", "", pars)
+      } else {
+          file_out <- paste0(res_folder, "/", sprintf("OOS_results_%s_testperiod_%i.rda", model_name, t + 1))
+      }
       # ------------- analysis -------------
       fit <- stan(file = models[[s]][["model"]],
                   pars = models[[s]][["pars"]],
@@ -138,14 +152,6 @@ for (t in end_of_training_samples) {
                   save_warmup = FALSE, 
                   control=list(adapt_delta = 0.99))
       
-      model_name <- gsub("Stan/", "", gsub("\\..*", "", models[[s]][["model"]]))
-      res_folder <- paste0("results/", model_name, collapse = "/")
-      if (!dir.exists(res_folder)) dir.create(res_folder, recursive = TRUE)
-      if (t == max(dat$year_id)) {
-          file_out <- paste0(res_folder, "/", sprintf("OOS_results_%s_fullsample.rda", model_name))
-      } else {
-          file_out <- paste0(res_folder, "/", sprintf("OOS_results_%s_testperiod_%i.rda", model_name, t + 1))
-      }
       save(fit, file = file_out)
    }
 }
