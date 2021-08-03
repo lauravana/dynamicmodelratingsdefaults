@@ -37,9 +37,12 @@ The Stan codes for the five models introduced in the papers can be found in the 
 
 ## Estimation of the models using RStan
 
-The file `code_estimation.R` contains the code for reproducing the analysis in that it performs the out of sample analysis by repeatedly estimating the five models presented in the paper (`PM`, `S1`, `S2`, `D1`, `D2`) using the **RStan** package (Stan Development Team, 2020) for different training vs. test samples from `synthetic_dat.rda`. In the one-step-ahead prediction exercise  we train the model on data containing years 1 to t and then evaluate the log predictive likelihoods for the following year t + 1. We illustrate the approach for $t = 13,\ldots, 19$.
+### Simulation study
+In the folder `Simulation`, the `Simulation.Rmd` file can be used to reproduce the analysis from the online appendix of the paper.
+### Synthetic data
+In the folder `Synthetic_Data`, the `Synthetic_Data_Analysis.Rmd` contains the code for reproducing the analysis in that it performs the out of sample analysis by repeatedly estimating the five models presented in the paper (`PM`, `S1`, `S2`, `D1`, `D2`) using the **RStan** package (Stan Development Team, 2020) for different training vs. test samples from `synthetic_dat.rda`. In the one-step-ahead prediction exercise  we train the model on data containing years 1 to t and then evaluate the log predictive likelihoods for the following year t + 1. We illustrate the approach for $t = 13,\ldots, 19$.
 
-The code creates a folder `Results_Synthetic_Data` which contains subfolders with the model names which in turn contain the  `.rda` files for each test period.
+The code creates a folder `Results_Synthetic_Data` which contains resulting `.rda` files for each test period. Code for computing the out-of-time measures is provided.
 
 ## References
   Beata Nowok, Gillian M. Raab, Chris Dibben (2016). synthpop: Bespoke
