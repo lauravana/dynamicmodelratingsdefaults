@@ -99,9 +99,6 @@ data {
   int<lower=2> K1; // number of classes 1st outcome
   int<lower=2> K2; // number of classes 2nd outcome
   int<lower=2> K3; // number of classes 3rd outcome
-  vector<lower=0>[K1] prior_counts_R1; // number of observations in each class
-  vector<lower=0>[K2] prior_counts_R2; // number of observations in each class
-  vector<lower=0>[K3] prior_counts_R3; // number of observations in each class
   int<lower=1, upper=K1> y1_train[NR1_train]; // ordinal outcome rater 1 training
   int<lower=1, upper=K2> y2_train[NR2_train]; // ordinal outcome rater 2 training
   int<lower=1, upper=K3> y3_train[NR3_train]; // ordinal outcome rater 3 training
@@ -129,14 +126,6 @@ parameters {
   // ** Standard deviation parameters **
   vector[I] tau; // shrinkage parameter
   real<lower=0> q2;
-  //vector<lower=0>[I] lambda_sq;
-  //vector<lower=0>[I] om;
-  //real <lower=0> tau ; // global shrinkage parameter
-  //vector<lower=0>[I] lambda ; // local shrinkage parameter
-  //real<lower=0> caux ;
-  //real<lower=0> tau_sq;
-  //real<lower=0> eta;
-  //real<lower=0> tau;
   real<lower=0> omega; 
   real<lower=0> psi; 
   // ** Raw rater factor (iid) ** 
@@ -205,10 +194,10 @@ transformed parameters {
   SR2 = S + x_train * gamma2 + lambda[1] * delta[year_id_train]; 
   SR3 = S + x_train * gamma3 + lambda[2] * delta[year_id_train];
   if (N2 != 0) {
-    u_test  = a[firm_id_test]  - btilde[year_id_test] + epsilon[id_test]; //   
+    u_test  = a[firm_id_test]  - btilde[year_id_test] + epsilon[id_test];   
     S_test   = x_test * beta + u_test; 
     SR1_test = S_test + x_test * gamma1 +             delta[year_id_test];
-    SR2_test = S_test + x_test * gamma2 + lambda[1] * delta[year_id_test]; 
+    SR2_test = S_test + x_test * gamma2 + lambda[1] * delta[year_id_test];
     SR3_test = S_test + x_test * gamma3 + lambda[2] * delta[year_id_test];
   }
 }
@@ -227,18 +216,14 @@ model {
 
   // *** Random effects ***  
   // 1) firm effects
-  //om ~ inv_gamma(0.5, 1);
-  //lambda_sq ~ inv_gamma(0.5, 1 ./ om);
-//tau ~ cauchy(0, 1) is equivalent with;;
-  //eta ~ inv_gamma(0.5, 1);
-  //tau_sq ~ inv_gamma(0.5, 1 / eta);
+
 
   target += std_normal_lpdf(a_raw); 
   //target += cauchy_lpdf(lambda |0, 1);
   //target += cauchy_lpdf(tau |0 , 10^-4);
   //target += inv_gamma_lpdf(caux|0.5 * 2, 0.5*2);
   //target += cauchy_lpdf(tau | 0,1); 
-  target += inv_gamma_lpdf(q2 | 0.5, 0.2275); 
+  target += inv_gamma_lpdf(q2 | 0.5, 0.5); 
   //target += gamma_lpdf(tau2 | 0.5, 1/(2 * q2)); 
   target += normal_lpdf(tau | 0, sqrt(q2)); 
   //target += double_exponential_lpdf(a| 0, sqrt(q2));
@@ -256,7 +241,7 @@ model {
   // 4) time effects - rater
   target += beta_lpdf(phideltastar | 1, 1);
   target += multi_normal_cholesky_lpdf(delta | rep_vector(0, T), chol_cor_delta);
-  target += cauchy_lpdf(lambda | 0, 2); //std_normal_lpdf(lambda);
+  target += std_normal_lpdf(lambda);
 
 
   // *** Likelihood ***

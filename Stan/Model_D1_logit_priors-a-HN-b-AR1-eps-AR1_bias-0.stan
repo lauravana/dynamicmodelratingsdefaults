@@ -99,9 +99,6 @@ data {
   int<lower=2> K1; // number of classes 1st outcome
   int<lower=2> K2; // number of classes 2nd outcome
   int<lower=2> K3; // number of classes 3rd outcome
-  vector<lower=0>[K1] prior_counts_R1; // number of observations in each class
-  vector<lower=0>[K2] prior_counts_R2; // number of observations in each class
-  vector<lower=0>[K3] prior_counts_R3; // number of observations in each class
   int<lower=1, upper=K1> y1_train[NR1_train]; // ordinal outcome rater 1 training
   int<lower=1, upper=K2> y2_train[NR2_train]; // ordinal outcome rater 2 training
   int<lower=1, upper=K3> y3_train[NR3_train]; // ordinal outcome rater 3 training
@@ -126,14 +123,6 @@ parameters {
   // ** Standard deviation parameters **
   vector[I] tau; // shrinkage parameter
   real<lower=0> q2;
-  //vector<lower=0>[I] lambda_sq;
-  //vector<lower=0>[I] om;
-  //real <lower=0> tau ; // global shrinkage parameter
-  //vector<lower=0>[I] lambda ; // local shrinkage parameter
-  //real<lower=0> caux ;
-  //real<lower=0> tau_sq;
-  //real<lower=0> eta;
-  //real<lower=0> tau;
   real<lower=0> omega; 
   real<lower=0> psi; 
   // ** Persistence of AR(1) **
@@ -146,8 +135,10 @@ parameters {
 }
 
 transformed parameters {
+  // Train set quantities
   vector[N1] S;
   vector[N1] u_train;
+  // Test set quantities
   vector[N2] S_test;
   vector[N2] u_test;
    // Random effects
@@ -181,14 +172,13 @@ transformed parameters {
   S       = x_train * beta + u_train;
   if (N2 != 0) {
     S_test  = x_test * beta + u_test;
-   // SR_test =         x_test * beta + u_test;
   }
 }
 
 model {
   // *** Priors *** 
   target += student_t_lpdf(beta | 4, 0, 1);
-  target += student_t_lpdf(beta0tilde| 4, 0, 1);
+  target += student_t_lpdf(beta0tilde | 4, 0, 1);
 
   target += induced_dirichlet_lpdf(theta1 | rep_vector(1, K1), 0);
   target += induced_dirichlet_lpdf(theta2 | rep_vector(1, K2), 0);
@@ -196,11 +186,6 @@ model {
 
   // *** Random effects ***  
   // 1) firm effects
-  //om ~ inv_gamma(0.5, 1);
-  //lambda_sq ~ inv_gamma(0.5, 1 ./ om);
-//tau ~ cauchy(0, 1) is equivalent with;;
-  //eta ~ inv_gamma(0.5, 1);
-  //tau_sq ~ inv_gamma(0.5, 1 / eta);
 
   target += std_normal_lpdf(a_raw); 
   //target += cauchy_lpdf(lambda |0, 1);

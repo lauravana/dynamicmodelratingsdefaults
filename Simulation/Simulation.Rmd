@@ -1,0 +1,785 @@
+---
+title: |
+  | Supplementary material: Dynamic modeling of corporate credit ratings and defaults
+  | Simulation study
+author: "Laura Vana"
+output: 
+  pdf_document:
+      toc: true
+header-includes:
+  - \usepackage{multicol}
+  - \usepackage{float} 
+  - \usepackage{tabularx}  
+  - \usepackage{longtable} 
+
+---
+
+```{r}
+knitr::opts_chunk$set(echo = FALSE, fig.pos = "htpb!", out.extra = "")
+library(rstan)
+library(coda)
+library(xtable)
+library(dplyr)
+library(ggplot2)
+library(ordinal)
+library(knitr)
+library(kableExtra)
+```
+
+
+```{r generate_measures, eval=TRUE}
+mae <- function(draws, true) {
+  if (dim(draws)[3] == 1) {
+    mean(abs(draws - true))
+  } else {
+    rowMeans(apply(draws, c(1,2), function(x) abs(x - true)))
+  }
+}
+rmse <- function(draws, true) {
+  if (dim(draws)[3] == 1) {
+    sqrt(mean((draws - true)^2))
+  } else {
+    sqrt(rowMeans(apply(draws, c(1,2), function(x) (x - true)^2)))
+  }
+}
+
+rbias <- function(draws, true) {
+  if (dim(draws)[3] == 1) {
+    (mean((draws - true)/true))
+  } else {
+    (rowMeans(apply(draws, c(1,2), function(x) (x - true)/true)))
+  }
+}
+
+generate_metrics <- function(fit, params_actual, f = mae) {
+  if (class(fit) == "stanfit") {
+    beta0_draws <- rstan::extract(fit, pars = "beta0", 
+                                  permuted = FALSE, 
+                                  inc_warmup = TRUE)
+    beta_draws <- rstan::extract(fit, pars = "beta", 
+                                 permuted = FALSE,
+                                 inc_warmup = TRUE)
+    
+    # idiosyncratic effects
+    psi_draws <- rstan::extract(fit, pars = "psi", 
+                                permuted = FALSE, 
+                                inc_warmup = TRUE)
+    if ("rho" %in% (fit@model_pars)) { 
+      rho_draws <- rstan::extract(fit, pars = "rho", 
+                                  permuted = FALSE, 
+                                  inc_warmup = TRUE)
+    }
+    # raters
+    theta1_draws <- rstan::extract(fit, pars = "theta1", 
+                                   permuted = FALSE, 
+                                   inc_warmup = TRUE)
+    theta2_draws <- rstan::extract(fit, pars = "theta2", 
+                                   permuted = FALSE, 
+                                   inc_warmup = TRUE)
+    theta3_draws <- rstan::extract(fit, pars = "theta3", 
+                                   permuted = FALSE, 
+                                   inc_warmup = TRUE)
+    if ("gamma1" %in% (fit@model_pars)) {
+      gamma1_draws <- rstan::extract(fit, pars = "gamma1", 
+                                     permuted = FALSE,
+                                     inc_warmup = TRUE)
+    }
+    if ("gamma2" %in% (fit@model_pars)) {
+      gamma2_draws <- rstan::extract(fit, pars = "gamma2", 
+                                     permuted = FALSE,
+                                     inc_warmup = TRUE)
+    }   
+    if ("gamma3" %in% (fit@model_pars)) {
+      gamma3_draws <- rstan::extract(fit, pars = "gamma3", 
+                                     permuted = FALSE,
+                                     inc_warmup = TRUE)
+    }
+    ## firm random effects
+    if ("q2" %in% (fit@model_pars)) {
+      q2_draws <- rstan::extract(fit, pars = "q2", 
+                                 permuted = FALSE,
+                                 inc_warmup = TRUE)
+    }
+    ## time random effects
+    if ("omega" %in% (fit@model_pars)) {
+      omega_draws <- rstan::extract(fit, pars = "omega", 
+                                 permuted = FALSE,
+                                 inc_warmup = TRUE)
+    }
+    if ("phib" %in% (fit@model_pars)) {
+      phib_draws <- rstan::extract(fit, pars = "phib", 
+                                    permuted = FALSE,
+                                    inc_warmup = TRUE)
+    }
+    ## rater time effects
+    if ("phidelta" %in% (fit@model_pars)) {
+      phidelta_draws <- rstan::extract(fit, pars = "phidelta", 
+                                    permuted = FALSE,
+                                    inc_warmup = TRUE)
+    }
+    if ("lambda" %in% (fit@model_pars)) {
+      lambda_draws <- rstan::extract(fit, pars = "lambda", 
+                                    permuted = FALSE,
+                                    inc_warmup = TRUE)
+    }
+    ## RESULTS
+    out <-   c(
+      #beta 0
+      beta0 = f(beta0_draws, params_actual$beta0),
+      # beta
+      beta = f(beta_draws, params_actual$beta),
+      # theta1
+      theta1 = f(theta1_draws, params_actual$theta1),
+      # theta2
+      theta2 = f(theta2_draws, params_actual$theta2),
+      # theta3
+      theta3 = f(theta3_draws, params_actual$theta3),
+      # psi 
+      psi = f(psi_draws, params_actual$psi)
+    )
+    if ("gamma1" %in% (fit@model_pars)) {
+      out <- c(out, gamma1 = f(gamma1_draws, params_actual$gamma1))
+    }
+    if ("gamma2" %in% (fit@model_pars)) {
+      out <- c(out, gamma2 = f(gamma2_draws, params_actual$gamma2))
+    }
+    if ("gamma3" %in% (fit@model_pars)) {
+      out <- c(out, gamma3 = f(gamma3_draws, params_actual$gamma3))
+    }
+    if ("rho" %in% (fit@model_pars)) { 
+      out <- c(out, rho = f(rho_draws, params_actual$rho))
+    }
+    if ("tau" %in% (fit@model_pars)) {
+      out <- c(out, q2 = f(q2_draws, params_actual$q2))
+    }
+    ## time random effects
+    if ("omega" %in% (fit@model_pars)) {
+      out <- c(out, omega = f(omega_draws, params_actual$omega))
+    }
+    if ("phib" %in% (fit@model_pars)) {
+      out <- c(out, phib = f(phib_draws, params_actual$phib))
+    }
+    if ("phidelta" %in% (fit@model_pars)) {
+      out <- c(out, phidelta = f(phidelta_draws, params_actual$phidelta))
+    }
+    if ("lambda" %in% (fit@model_pars)) {
+      out <- c(out, lambda = f(lambda_draws, params_actual$lambda[-1]))
+    }
+  }
+  #################################################
+  return(out)
+}
+```
+
+
+We perform a simulation study to investigate how well the parameters of the five different models introduced in the manuscript can be recovered. 
+
+We simulate data sets from each of the five models where the latent creditworthiness is given by $S_i(t)=\beta_0+
+\boldsymbol\beta^\top\boldsymbol x_{i}(t) + u_i(t)$, where we use different specifications for the random effect and for the rater bias:
+
+|  | Model *(PM)*   |  Model *(S1)*  | Model *(S2)* | Model *(D1)* | Model *(D2)*|
+|--|:---:|:---:|:---:|:---:|:---:|
+| Random effect $u_i(t)$  |$a_i-\omega b(t) +\epsilon_i(t)$, $a_i\sim N$,  $b(t)\sim AR(1)$, $\epsilon_i(t)\sim AR(1)$|  $\epsilon_i(t)$, \newline $\epsilon_i(t)\sim N$ |   $\epsilon_i(t)$,  \newline $\epsilon_i(t)\sim N$  |  $a_i-\omega b(t) +\epsilon_i(t)$, $a_i\sim N$,  $b(t)\sim AR(1)$, $\epsilon_i(t)\sim AR(1)$ | $a_i-\omega b(t) +\epsilon_i(t)$, $a_i\sim N$,  $b(t)\sim AR(1)$, $\epsilon_i(t)\sim AR(1)$|
+|  Rater bias $\eta_{ij}(t)$| $\boldsymbol\gamma_j^\top\boldsymbol x_{i}(t)+\lambda_j\delta_t$ |  $0$   |   $\boldsymbol\gamma_j^\top\boldsymbol x_{i}(t)$|  $0$  |  $\boldsymbol\gamma_j^\top\boldsymbol x_{i}(t)$ |
+
+Table: Specification of random effect and rater bias for the models considered in the manuscript.
+
+For all data sets simulated data sets we use $I = 100$ firms, $T = 20$ time points and $P = 3$ covariates. For each firm-year we simulate a binary indicator $D$ and ratings from three raters i.e., $J=\{R_1, R_2, R_3\}$. The three covariates $X_1$,  $X_2$,  $X_3$ are simulated from a standard normal distribution. 
+
+To incorporate the feature that our sample exhibits missing observations, we randomly remove 10\% of the rating observations for $R_1$, 
+ 20\%  for $R_2$ and 30\% for $R_3$.
+
+The parameters used for simulating the data from the five models are the following:
+
+* $\beta_0=-2$, $\boldsymbol\beta = (0.2, 0.5, 1)^\top$,
+
+* Each rater assigns ratings on a 4 point scale: $\boldsymbol\theta_{1} = (-\infty, -3, -2, -1, \infty)^\top$,   $\boldsymbol\theta_2 = (-\infty, -3, -2.5, -1.5, \infty)^\top$,  $\boldsymbol\theta_3 = (-\infty, -4, -2,  0, \infty)^\top$
+
+* $\boldsymbol\gamma_{1} = (-0.1, -1, 0.5)^\top$,   $\boldsymbol\gamma_2 = (-0.2, 0.5, -0.5)^\top$,  $\boldsymbol\gamma_3 = (-0.8, 0, 1)^\top$
+
+* $\psi = 0.5$, $\rho = 0.9$, 
+
+* $q^2 = 1$,
+
+* $\phi_b=0.7$, $\omega=0.2$,
+
+* $\lambda=(1, 0.2, 0.5)^\top$, $\phi_\delta=0.5$.
+```{r}
+beta0 <- -2
+beta <- c(0.2, 0.5, 1)
+theta1 <- beta0 + c(-1, 0, 1)
+theta2 <- beta0 + c(-1, -0.5, 0.5)
+theta3 <- beta0 + c(-2, 0, 2)
+psi <- 0.5
+gamma1 <- c(-0.1, -1, 0.5) 
+gamma2 <- c(-0.2, 0.5, -0.5)
+gamma3 <- c(-0.8, 0 , 1)
+rho <- 0.9
+q2 <- 1
+omega <- 0.2
+phib <- 0.7
+lambda <- c(1, 2, 0.5)
+phidelta <- -0.7
+
+## Put together the different parameters for the models
+params_S1 <- list(
+  beta0 = beta0, beta = beta, 
+  psi = psi, rho = 0, q2 = 0, 
+  omega = 0, phib = 0,
+  theta1 = theta1, theta2 = theta2, theta3 = theta3)
+
+params_S2 <- list(
+  beta0 = beta0, beta = beta,  
+  gamma1 = gamma1,  gamma2 = gamma2, gamma3 = gamma3,
+  psi = psi, rho = 0, tau = 0, q2 = 0, 
+  omega = 0, phib = 0,
+  theta1 = theta1, theta2 = theta2, theta3 = theta3)
+
+params_D1 <- list(
+  beta0 = beta0, beta = beta, 
+  psi = psi, rho = rho, q2 = q2,
+  omega = omega, phib = phib,
+  theta1 = theta1, theta2 = theta2, theta3 = theta3)
+
+params_D2 <- list(
+  beta0 = beta0, beta = beta, 
+  gamma1 = gamma1,  gamma2 = gamma2, gamma3 = gamma3,
+  psi = psi, rho = rho, q2 = q2,
+  omega = omega,  phib = phib,
+  theta1 = theta1, theta2 = theta2, theta3 = theta3)
+
+params_PM <- list(
+  beta0 = beta0, beta = beta, 
+  gamma1 = gamma1,  gamma2 = gamma2, gamma3 = gamma3,
+  psi = psi, rho = rho, q2 = q2,
+  omega = omega,  phib = phib,
+  theta1 = theta1, theta2 = theta2, theta3 = theta3,
+  lambda = lambda,  phidelta = phidelta)
+```
+
+
+```{r simulation_function}
+simulate_data_models <- function(
+  I, TT, J = 3, P, X = NULL, seed = 12345, perc_NA = c(0, 0, 0),
+  params = list(
+    beta0 = NULL, beta = NULL,
+    psi = 0.5, rho = 0, q2 = 0, 
+    omega = 0, phib = 0,
+    gamma1 = NULL, gamma2 = NULL, gamma3 = NULL, 
+    theta1 = c(-8, -6, -4, -1),
+    theta2 = c(-8, -6, -5, -2),
+    theta3 = c(-8, -4, -2, 0.5), 
+    phidelta = 0, 
+    lambda = c(0, 0, 0))) {
+  
+  set.seed(seed)
+  if (is.null(X)){
+    X <- matrix(rnorm(I * TT * P), ncol = P)
+    colnames(X) <- paste0("X", 1 : P)
+  }
+  firm_id <- rep(1 : I, each = TT)
+  year_id <- rep(1 : TT, I)
+  
+  # regression coefficients
+  if (is.null(params$beta))   params$beta   <- rep(0, P)
+  ## Todo for varying J
+  if (is.null(params$gamma1)) params$gamma1 <- rep(0, P)
+  if (is.null(params$gamma2)) params$gamma2 <- rep(0, P)
+  if (is.null(params$gamma3)) params$gamma3 <- rep(0, P)
+  # firm effects
+  tau <-  with(params, rnorm(I, 0, sqrt(q2)))
+  a <- tau * rnorm(I)
+  # time effects  
+  phi_b <- params$phib
+  b0 <- rnorm(1, 0, sqrt(1/(1-phi_b^2)))
+  upsilon_b <- rnorm(TT, 0, params$omega) # error
+  b <- double(TT)
+  b[1] <- phi_b * b0 + upsilon_b[1]
+  for (t in 2:TT) b[t] <- phi_b * b[t - 1] + upsilon_b[t]
+  
+  # idiosyncratic effects
+  psi <- params$psi
+  rho <- params$rho
+  xi <- rnorm(I * TT, 0, psi)
+  epsilon <- double(TT * I)
+  for (i in 1 : I) {
+    s <- (i - 1) * TT # shift in the indexes
+    epsilon0       <- rnorm(1, 0, sqrt(1/(1-rho^2)))
+    epsilon[s + 1] <- rho * epsilon0 + xi[s + 1]
+    for (t in 2 : TT) {
+      epsilon[s + t] <- rho * epsilon[s + t - 1] + xi[s + t]
+    }
+  }
+  # 
+  # Constructing the random effect
+  u <- a[firm_id] - b[year_id] + epsilon
+  
+  # Constructing the PD score
+  S <- with(params, beta0 + X %*% beta) + u
+  
+  # Constructing the responses
+  
+  ## Default
+  y_def <- rbinom(I * TT, 1, prob = plogis(S))
+  
+  ## Ratings
+  ### Rater-specific time effects  
+  phidelta <- ifelse(is.null(params$phidelta), 0, params$phidelta)
+  delta0 <- rnorm(1, 0, sqrt(1/(1-phidelta^2)))
+  upsilon_delta <- rnorm(TT, 0, 1) # error
+  delta <- double(TT)
+  delta[1] <- phidelta * delta0 + upsilon_delta[1]
+  for (t in 2:TT) delta[t] <- phidelta * delta[t - 1] + upsilon_delta[t]
+  ### Covariate dependent rater bias
+  lambda <- if(is.null(params$lambda)) rep(0L, J) else params$lambda
+  eta1   <- with(params, X %*% gamma1) + lambda[1] *  delta[year_id]
+  eta2   <- with(params, X %*% gamma2) + lambda[2] *  delta[year_id]
+  eta3   <- with(params, X %*% gamma3) + lambda[3] *  delta[year_id]
+  ### Underlying ytilde
+  y1tilde <- S + eta1 + rlogis(I * TT, 0, 1)
+  y2tilde <- S + eta2 + rlogis(I * TT, 0, 1)
+  y3tilde <- S + eta3 + rlogis(I * TT, 0, 1)
+  
+  y1 <- as.numeric(cut(y1tilde, c(-Inf, params$theta1, Inf)))
+  y2 <- as.numeric(cut(y2tilde, c(-Inf, params$theta2, Inf)))
+  y3 <- as.numeric(cut(y3tilde, c(-Inf, params$theta3, Inf)))
+  
+  y1[sample(seq_along(y1), round(perc_NA[1] * length(y1)))] <- NA
+  y2[sample(seq_along(y2), round(perc_NA[2] * length(y2)))] <- NA
+  y3[sample(seq_along(y3), round(perc_NA[3] * length(y3)))] <- NA
+  
+  ## Putting all together
+  df <- data.frame(firm_id = firm_id,
+                   year_id = year_id,
+                   R1 = y1, R2 = y2, R3 = y3, 
+                   D = y_def,  X)
+  
+  return(list(df, params = params, b = b, a = a))
+}
+```
+
+```{r eval=FALSE}
+generate_data <- function(model_name, I = 100, TT = 20, P = 3, J = 3, nsim = 1) {
+  FOLDER_OUT <- sprintf("I=%i_T=%i_P=%i_J=%i/datasets", I, TT, P, J)
+  if (!dir.exists(FOLDER_OUT)) dir.create(FOLDER_OUT)
+  
+  if (nsim == 1) {
+    simobj <- simulate_data_models(I = I, TT = TT, P = P, J = J, params = get(paste0("params_", model_name)), 
+                                   perc_NA = c(0.1, 0.2, 0.3))
+    sim_dat <-  simobj[[1]]
+    FILE_OUT <- sprintf("%s/sim_dat_R1NA=%i_R2NA=%i_R3NA=%i_%s.rda", 
+                        FOLDER_OUT, 
+                        round(mean(is.na(sim_dat$R1) * 100)),
+                        round(mean(is.na(sim_dat$R2) * 100)),
+                        round(mean(is.na(sim_dat$R3) * 100)),
+                        model_name)
+    save(sim_dat, file = FILE_OUT)
+  } else {
+    sapply(1:nsim, function(i) {
+      simobj <- simulate_data_models(I = I, TT = TT, P = P, J = J, seed = 12345 + i - 1, 
+                                     params = get(paste0("params_", model_name)), 
+                                     perc_NA = c(0.1, 0.2, 0.3))
+      sim_dat <-  simobj[[1]]
+      FILE_OUT <- sprintf("%s/sim_dat_R1NA=%i_R2NA=%i_R3NA=%i_%s_rep_%i.rda", 
+                          FOLDER_OUT, 
+                          round(mean(is.na(sim_dat$R1) * 100)),
+                          round(mean(is.na(sim_dat$R2) * 100)),
+                          round(mean(is.na(sim_dat$R3) * 100)),
+                          model_name, i)
+      save(sim_dat, file = FILE_OUT)
+    })
+  }
+}
+
+generate_data("S1", nsim = 50); 
+generate_data("S2", nsim = 50); 
+generate_data("D1", nsim = 50); 
+generate_data("D2", nsim = 50); 
+generate_data("PM", nsim = 50)
+```
+
+We keep the hyperparameters of the priors constant over all model specifications.
+In each estimation step we use 5 chains of 2000 iterations, whereas the first 1000 are used as burn-in. Hence, inference is performed based on 5000 draws.
+```{r}
+niter <- 2000L
+nchains <- 5
+```
+
+
+## Simulation exercise 1: Estimation of model parameters
+
+For each model, we simulate 50 data sets from the model specification and estimate the parameters using **rstan**.
+
+```{r eval=FALSE}
+# This was run on a cluster
+## id <- as.integer(Sys.getenv("SGE_TASK_ID")) 
+nrep <- 50 ## number of repetitions
+
+for (id in 1:250) {
+  nM <- 5 ## number of models
+ 
+  s <- rep(1:nM, nrep)[id]
+  i <- rep(1:nrep, each = nM)[id]
+  data_names <- c("S1", "S2", "D1", "D2", "PM")[s]
+  ## ----load_data------------------
+  
+  load(sprintf("I=100_T=20_P=3_J=3/datasets/sim_dat_R1NA=10_R2NA=20_R3NA=30_%s_rep_%i.rda",
+               data_names, i))
+  dat <- sim_dat 
+  tt <- max(dat[, "year_id"])
+  ## ---------------- stan_data ----------------------
+  dat_tmp <- dat
+  dat_tmp[, "firm_id"] <- as.numeric(factor(dat_tmp[, "firm_id"]))
+  
+  id_train <- which(dat_tmp[, "year_id"] <= tt)
+  id_test  <- which(dat_tmp[, "year_id"] ==  tt + 1)
+  
+  dat_tmp[, "year_id"] <- as.numeric(factor(dat_tmp[, "year_id"]))
+  
+  N1 <- length(id_train)
+  N2 <- length(id_test)
+  
+  # matrix of ratings in training sample
+  y_train <- dat_tmp[id_train, c("R1", "R2", "R3")]
+  # matrix of ratings in test sample
+  y_test  <- dat_tmp[id_test,  c("R1", "R2", "R3")]
+  
+  begin_eps <- seq_len(N1 + N2)[!duplicated(dat_tmp[, "firm_id"])]
+  end_eps   <- c(begin_eps[-1] - 1, N1 + N2)
+  
+  DATA <- list(
+    N             = N1 + N2, 
+    N1            = N1, 
+    N2            = N2,
+    NR1_train     = sum(!is.na(y_train[, 1])),
+    NR2_train     = sum(!is.na(y_train[, 2])),
+    NR3_train     = sum(!is.na(y_train[, 3])),
+    NR1_test      = sum(!is.na(y_test[, 1])),
+    NR2_test      = sum(!is.na(y_test[, 2])),
+    NR3_test      = sum(!is.na(y_test[, 3])),
+    P             = sum(grepl("X", colnames(dat_tmp))),  
+    J             = 3,
+    I             = length(unique(dat_tmp[, "firm_id"])),
+    T             = max(dat_tmp[, "year_id"]),
+    id_test       = N1 + seq_len(N2),
+    begin_eps     = begin_eps,
+    end_eps       = end_eps,
+    firm_id       = dat_tmp[, "firm_id"],
+    firm_id_train = dat_tmp[id_train, "firm_id"],
+    firm_id_test  = dat_tmp[id_test, "firm_id"],
+    year_id       = dat_tmp[, "year_id"],
+    year_id_train = dat_tmp[id_train, "year_id"],
+    year_id_test  = dat_tmp[id_test, "year_id"],
+    id_obs_R1_train = which(!is.na(y_train[, 1])),
+    id_obs_R2_train = which(!is.na(y_train[, 2])),
+    id_obs_R3_train = which(!is.na(y_train[, 3])),
+    id_obs_R1_test  = which(!is.na(y_test[, 1])),
+    id_obs_R2_test  = which(!is.na(y_test[, 2])),
+    id_obs_R3_test  = which(!is.na(y_test[, 3])),
+    K1 = max(y_train[, 1], na.rm = TRUE),
+    K2 = max(y_train[, 2], na.rm = TRUE),
+    K3 = max(y_train[, 3], na.rm = TRUE),
+    y1_train = y_train[!is.na(y_train[, 1]), 1],
+    y2_train = y_train[!is.na(y_train[, 2]), 2],
+    y3_train = y_train[!is.na(y_train[, 3]), 3],
+    y1_test = y_test[!is.na(y_test[, 1]), 1],
+    y2_test = y_test[!is.na(y_test[, 2]), 2],
+    y3_test = y_test[!is.na(y_test[, 3]), 3],
+    D_train = dat_tmp[id_train, "D"], 
+    D_test  = dat_tmp[id_test, "D"],
+    x_train = dat_tmp[id_train, grepl("X", colnames(dat_tmp))], 
+    x_test  = dat_tmp[id_test ,  grepl("X", colnames(dat_tmp))]
+  )
+  # ------------- analysis -------------
+  ## ---------------- stan_models ----------------------
+  models <- list(
+    list(## Model S1
+      model = "../Stan/Model_S1_logit_priors-eps-N_bias-0.stan",
+      pars  = c("beta", "beta0",
+                "theta1", "theta2", "theta3",
+                "psi"
+                #, "log_lik_all", 
+                # "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+      )),
+    list(## Model S2
+      model = "../Stan/Model_S2_logit_priors-eps-N_bias-diffgammas.stan",
+      pars  = c("beta0", "beta", "gamma1", "gamma2", "gamma3", 
+                "theta1", "theta2", "theta3",
+                "psi" #,"log_lik_all", "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+      )),
+    list(## Model D1
+      model = "../Stan/Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0.stan",
+      pars  = c("beta0","beta", 
+                "theta1", "theta2", "theta3",
+                "q2",
+                "b", "omega", "phib",
+                "rho", "psi"#, "log_lik_all","log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+      )),
+    list(## Model D2
+      model = "../Stan/Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas.stan",
+      pars  = c("beta0", "beta","gamma1", "gamma2", "gamma3",   
+                "theta1", "theta2", "theta3",
+                "q2", 
+                "b", "omega", "phib", 
+                "rho", "psi"#, "log_lik_all", "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+      )),
+    list(## Model PM
+      model = "../Stan/Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1.stan",
+      pars  = c("beta0", "beta","gamma1", "gamma2", "gamma3", 
+                "theta1", "theta2", "theta3",
+                "q2", 
+                "b", "omega", "phib",
+                "rho", "psi",
+                "delta", "lambda", "phidelta"#,"log_lik_all", "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+      )))
+  
+  
+  ## --------- rstan --------------
+  library(rstan)
+  library(coda)
+  
+  rng_seed <- s * 123456 
+  
+  pars <- models[[s]][["pars"]]
+  
+  model_name <- gsub("../Stan/", "", gsub("\\..*", "", models[[s]][["model"]]))
+  
+  res_folder <- "I=100_T=20_P=3_J=3/Simulation_Res_1/"
+  
+  file_out <- paste0(res_folder, sprintf("%s_fullsample_simdat_rep_%i.rda", data_names, i))
+  pars <- pars[!grep("_test", pars)]
+  
+  print(model_name)
+  print(file_out)
+  print(pars)
+  
+  Sys.time()
+  fit <- stan(file = models[[s]][["model"]],
+              pars = pars,
+              data = DATA, 
+              chains = nchains, iter = niter, 
+              seed = rng_seed, 
+              save_warmup = FALSE, 
+              control = list(adapt_delta = 0.99))
+  
+  save(fit, file = file_out)
+}
+```
+
+For one data set, the root mean squared errors and the relative bias for each parameter $\kappa$ is computed from the $m=1,\ldots,M$ posterior draws as:
+$$
+RMSE(\kappa) = \sqrt{\frac{1}{M}\sum_{m=1}^M(\kappa^{(m)} - \kappa^\text{true})^2},\qquad RBIAS(\kappa) = \frac{1}{M}\sum_{m=1}^M\frac{(\kappa^{(m)} - \kappa^\text{true})}{\kappa^\text{true}}.
+$$
+The distribution of the RMSEs is presented in Figure \ref{fig:rmse_boxplots} and the distribution of the relative bias in Figure \ref{fig:rbias_boxplots}.  We observe that parameters are well recovered in terms of bias. We see an overestimation in the persistence of the market factor $\phi_b$, most likely due to the informative prior placed on this parameter, where high values of $\phi_b$ are preferred. The large RMSE of $q^2$ can be explained due to the fact that we only use $I=100$ in the simulation so in this setting, inferring the value of the hyperparameter $q^2$ is associated with large uncertainty. 
+
+```{r eval=FALSE}
+dat_names <- c("S1", "S2", "D1", "D2", "PM")
+rmse_list <- lapply(dat_names, function(m) {
+  rmse_m <- sapply(1:50, function(i) {
+    load(sprintf("I=100_T=20_P=3_J=3/Simulation_Res_1/%s_fullsample_simdat_rep_%i.rda", m,  i))
+    generate_metrics(fit, params_actual = get(paste0("params_", m)), f = rmse)
+  })
+  colnames(rmse_m) <- paste0("rep", 1:50)
+  rmse_m
+})
+rmse_list_long <- lapply(seq_along(dat_names), function(i){
+  x <- rmse_list[[i]]
+  reshape(cbind.data.frame(model = dat_names[i], param = rownames(x), x), 
+          direction = "long", varying = 2+1:50, v.names = "res", 
+          idvar = "param", 
+          timevar = "rep")
+})
+rmse_long       <- do.call("rbind", rmse_list_long)
+rmse_long$model <- factor(rmse_long$model,
+                          ordered = TRUE,
+                          levels=c("S1", "S2", "D1", "D2", "PM"))
+rmse_long$param <- 
+  factor(rmse_long$param, 
+         labels = c(
+                    expression(beta[1]), expression(beta[2]), expression(beta[3]),expression(beta[0]),
+                    expression(gamma[11]),expression(gamma[12]),expression(gamma[13]),
+                    expression(gamma[21]),expression(gamma[22]),expression(gamma[23]),
+                    expression(gamma[31]),expression(gamma[32]),expression(gamma[33]),
+                    expression(lambda[2]),expression(lambda[3]),expression(omega),
+                    expression(phi[b]), expression(phi[delta]), expression(psi), 
+                    expression(q^2), expression(rho),
+                    expression(theta[11]), expression(theta[12]), expression(theta[13]),
+                    expression(theta[21]), expression(theta[22]), expression(theta[23]),
+                    expression(theta[31]), expression(theta[32]), expression(theta[33])))
+
+save(rmse_long, file = "I=100_T=20_P=3_J=3/Simulation_Res_1/rmse_long.rda")
+```
+
+```{r eval=FALSE}
+dat_names <- c("S1", "S2", "D1", "D2", "PM")
+rbias_list <- lapply(dat_names, function(m) {
+  rmse_m <- sapply(1:50, function(i) {
+    load(sprintf("I=100_T=20_P=3_J=3/Simulation_Res_1/%s/%s_fullsample_simdat_rep_%i.rda", m, m, i))
+    generate_metrics(fit, params_actual = get(paste0("params_", m)), f = rbias)
+  })
+  colnames(rmse_m) <- paste0("rep", 1:50)
+  rmse_m
+})
+rbias_list_long <- lapply(seq_along(dat_names), function(i){
+  x <- rbias_list[[i]]
+  reshape(cbind.data.frame(model = dat_names[i], param = rownames(x), x), 
+          direction = "long", varying = 2+1:50, v.names = "res", 
+          idvar = "param", 
+          timevar = "rep")
+})
+rbias_long       <- do.call("rbind", rbias_list_long)
+rbias_long$model <- factor(rbias_long$model,
+                          ordered = TRUE,
+                          levels=c("S1", "S2", "D1", "D2", "PM"))
+rbias_long$param <- 
+  factor(rbias_long$param, 
+         labels = c(
+                    expression(beta[1]), expression(beta[2]), expression(beta[3]),expression(beta[0]),
+                    expression(gamma[11]),expression(gamma[12]),expression(gamma[13]),
+                    expression(gamma[21]),expression(gamma[22]),expression(gamma[23]),
+                    expression(gamma[31]),expression(gamma[32]),expression(gamma[33]),
+                    expression(lambda[2]),expression(lambda[3]),expression(omega),
+                    expression(phi[b]), expression(phi[delta]), expression(psi), 
+                    expression(q^2), expression(rho),
+                    expression(theta[11]), expression(theta[12]), expression(theta[13]),
+                    expression(theta[21]), expression(theta[22]), expression(theta[23]),
+                    expression(theta[31]), expression(theta[32]), expression(theta[33])))
+
+save(rbias_long, file = "I=100_T=20_P=3_J=3/Simulation_Res_1/rbias_long.rda")
+```
+
+```{r message=FALSE, warning=FALSE}
+load("I=100_T=20_P=3_J=3/Simulation_Res_1/rbias_long.rda")
+
+p_rbias <- ggplot(subset(rmse_long, param %in% levels(param)[(1:15)]), aes(y = res)) + 
+  geom_boxplot() +  
+  facet_grid(param ~ model, switch = "y",
+             labeller = label_parsed,
+             scales="free") +  geom_hline(yintercept=0, lty=2, col="blue") +
+   theme(strip.text.y.left = element_text(angle = 0),
+         axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()) + ylab("RMSE")
+
+
+p_rbias2 <- ggplot(subset(rmse_long, param %in% levels(param)[-(1:15)]), aes(y = res)) + 
+  geom_boxplot() +
+  facet_grid(param ~ model,switch = "y",
+             labeller = label_parsed,
+             scales="free") + 
+   theme(strip.text.y.left = element_text(angle = 0),
+         axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()) + ylab("RBIAS")  +  geom_hline(yintercept=0, lty=2, col="blue")
+```
+
+```{r, figures-side-rbias,  out.width="90%", out.height="90%", fig.height = 15, fig.width = 10, fig.cap="\\label{fig:rbias_boxplots}Distribution of the RMSEs over the 50 simulated data sets from each of the five models  (in case the true parameter is zero, no boxplot is shown).",message=FALSE, warning=FALSE}
+gridExtra::grid.arrange(p_rbias, p_rbias2, ncol = 2)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+load("I=100_T=20_P=3_J=3/Simulation_Res_1/rmse_long.rda")
+
+p_rmse <- ggplot(subset(rmse_long, param %in% levels(param)[(1:15)]), aes(y = res)) + 
+  geom_boxplot() +  
+  facet_grid(param ~ model, switch = "y",
+             labeller = label_parsed,
+             scales="free") + 
+   theme(strip.text.y.left = element_text(angle = 0),
+         axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()) + ylab("RMSE")
+
+
+p_rmse2 <- ggplot(subset(rmse_long, param %in% levels(param)[-(1:15)]), aes(y = res)) + 
+  geom_boxplot() +
+  facet_grid(param ~ model,switch = "y",
+             labeller = label_parsed,
+             scales="free") + 
+   theme(strip.text.y.left = element_text(angle = 0),
+         axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()) + ylab("RMSE")
+
+
+```
+```{r, figures-side-rmse,  out.width="90%", out.height="90%", fig.height = 15, fig.width = 10, fig.cap="\\label{fig:rmse_boxplots}Distribution of the RMSEs over the 50 simulated data sets from each of the five models  (in case the true parameter is zero, no boxplot is shown).",message=FALSE, warning=FALSE}
+gridExtra::grid.arrange(p_rmse, p_rmse2, ncol = 2)
+```
+
+## Simulation exercise 2: Model selection
+
+```{r}
+models <- c(
+  "Model_S1_logit_priors-eps-N_bias-0",
+  "Model_S2_logit_priors-eps-N_bias-diffgammas",
+  "Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0",
+  "Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas",
+  "Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1"
+)
+
+dat_names <- c("S1", "S2", "D1", "D2", "PM")
+
+loo_file <- "I=100_T=20_P=3_J=3/Simulation_Res_2/loo_mat.rds"
+
+
+if (!file.exists(loo_file)) {
+  loo_list <- list()
+  k <- 0
+  for (i in seq_along(dat_names)) {
+    d <- dat_names[i]
+    for (j in seq_along(models)) {
+      k <- k + 1
+      m <- models[j]
+      file_in <- sprintf("I=100_T=20_P=3_J=3/Simulation_Res_1/%s_fullsample_simdat_%s_rep_1.rda", m, d)
+      if(file.exists(file_in)) {
+        load(file_in)
+        ll <- loo::extract_log_lik(fit, parameter_name = "log_lik_all")
+        loo_list[[k]] <- loo::loo(ll, k_threshold=0.7)
+      } 
+
+    }
+
+  }
+  saveRDS(loo_list, file = loo_file)
+}
+```
+We use for model comparison purposes the
+Bayesian LOO (leave-one-out) estimate of the expected log pointwise predictive (ELPD LOO) (Vehtari, Gelman, and Gabry 2017; Vehtari et al. 2020).. 
+For a single data set generated from each model, we estimate all five models in order to evaluate whether this information criterion is able to identify the correct model from which the data was simulated.
+Table \ref{tab:loo_mat} contains the difference in ELPD LOO relative to the best estimated model, i.e., the model with highest ELPD LOO (a value of zero hence representing the best estimated model), together with an estimate for the standard error of the differences. The different rows correspond to data simulated from the true model. We observe that for each row, the true model is identified by this criterion. Even for the case where the data is generated from model $(D2)$, while the best estimated model is model $(PM)$, we can see that the difference to model $(D2)$ is not significant and hence $(D2)$ should be chosen, as it is more parsimonious. 
+
+```{r results='asis',  message=FALSE, warning=FALSE}
+library(loo)
+loo_list <- readRDS(loo_file)
+loo_tab <- t(sapply(seq_along(dat_names), function(i) {
+  m <- loo::loo_compare(loo_list[(i - 1)*5 + 1:5])
+  m <- m[1:5,1:2]
+  m <- m[paste0("model", 1:5),]
+  sprintf("%.03f (%.03f)", m[,1], m[,2])
+}))
+
+colnames(loo_tab) <-  paste0("Estimated model: (", dat_names, ")")
+rownames(loo_tab) <-  paste0("True model : (", dat_names, ")")
+
+# loo_tab <- gsub("-", "$-$", loo_tab)
+
+col <- 1:5
+loo_tab[1,] <- loo_tab[1,] %>% cell_spec(bold = col == 1)
+loo_tab[2,] <- loo_tab[2,] %>% cell_spec(bold = col == 2)
+loo_tab[3,] <- loo_tab[3,] %>% cell_spec(bold = col == 3)
+loo_tab[4,] <- loo_tab[4,] %>% cell_spec(bold = col == 4)
+loo_tab[5,] <- loo_tab[5,] %>% cell_spec(bold = col == 5)
+loo_tab %>% kable(booktabs = TRUE, 
+                  escape = FALSE, 
+                  align=rep('r', 5),
+                  caption = "\\label{tab:loo_mat}This table contains the difference in the ELPD LOO relative to the best model among the five estimates ones.") %>%
+  kable_styling(latex_options = c("striped", "scale_down", "hold_position"))
+```
+
+
+# References
+
+* Vehtari, Aki, Jonah Gabry, Mans Magnusson, Yuling Yao, Paul-Christian Bürkner, Topi Paananen, and
+Andrew Gelman. 2020. "Loo: Efficient Leave-One-Out Cross-Validation and Waic for Bayesian Models." https://mc-stan.org/loo/.
+
+* Vehtari, Aki, Andrew Gelman, and Jonah Gabry. 2017. Practical Bayesian Model Evaluation Using
+Leave-One-Out Cross-Validation and Waic." Statistics and Computing 27 (5): 1413–32. https://doi.org/10.1
+007/s11222-016-9696-4.

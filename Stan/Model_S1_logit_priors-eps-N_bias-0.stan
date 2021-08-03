@@ -24,77 +24,6 @@ functions {
     return   dirichlet_lpdf(p | alpha)
            + log_determinant(J);
   }
-  /* compute the cholesky factor of an AR1 correlation matrix
-   * Args: 
-   *   ar: AR1 autocorrelation 
-   *   nrows: number of rows of the covariance matrix 
-   * Returns: 
-   *   A nrows x nrows matrix 
-   */ 
-   matrix cholesky_cor_ar1(real ar, int nrows) { 
-     matrix[nrows, nrows] mat; 
-     vector[nrows - 1] gamma; 
-     mat = diag_matrix(rep_vector(1, nrows)); 
-     for (i in 2:nrows) { 
-       gamma[i - 1] = pow(ar, i - 1); 
-       for (j in 1:(i - 1)) { 
-         mat[i, j] = gamma[i - j]; 
-         mat[j, i] = gamma[i - j]; 
-       } 
-     } 
-     return cholesky_decompose(1 / (1 - ar^2) * mat); 
-   }
-
-  /* scale and correlate idiosyncratic effects (epsilon_it) - common rho
-   * Args: 
-   *   zerr: standardized and independent idiosyncratic effects
-   *   sderr: standard deviation of the idiosyncratic effects
-   *   chol_cor: cholesky factor of the correlation matrix
-   *   begin: the first observation in each group 
-   *   end: the last observation in each group    
-   *   yid: an integer indication the id of the year for each obs
-   * Returns: 
-   *   vector of scaled and correlated idiosyncratic effects
-   */ 
-   vector scale_cov_eps(vector zerr, real sderr, matrix chol_cor, 
-                        int[] begin, int[] end, int[] yid) { 
-     vector[rows(zerr)] err; 
-     for (i in 1:size(begin)) { 
-       err[begin[i]:end[i]] = 
-         sderr * chol_cor[yid[begin[i]:end[i]], yid[begin[i]:end[i]]] * zerr[begin[i]:end[i]];
-     }                        
-     return err; 
-   }
-
-  /* scale and correlate time random effects (b_t)
-   * Args: 
-   *   b_raw: standardized and independent random effects
-   *   sd_b: standard deviation of the random effects
-   *   chol_cor: cholesky factor of the correlation matrix
-   * Returns: 
-   *   vector of scaled and correlated random effects
-   */ 
-   vector scale_cov_b(vector b_raw, real sd_b,
-		      matrix chol_cor) { 
-     vector[rows(b_raw)] b; 
-     b = sd_b * chol_cor * b_raw;                 
-     return b; 
-   }
-  /*  compute the cutpoints from probabilities
-   * Args: 
-   *   probabilities: vector of probabilities
-   */ 
-   vector make_cutpoints(vector probabilities) {
-     int C = rows(probabilities) - 1; 
-     vector[C] cutpoints;
-     real running_sum = 0;
-     for(c in 1:C) {
-       running_sum += probabilities[c];
-       cutpoints[c] = logit(running_sum);
-     }
-     return  cutpoints;
-  } 
-
 }
 
 data {
@@ -129,9 +58,6 @@ data {
   int<lower=2> K1; // number of classes 1st outcome
   int<lower=2> K2; // number of classes 2nd outcome
   int<lower=2> K3; // number of classes 3rd outcome
-  vector<lower=0>[K1] prior_counts_R1; // number of observations in each class
-  vector<lower=0>[K2] prior_counts_R2; // number of observations in each class
-  vector<lower=0>[K3] prior_counts_R3; // number of observations in each class
   int<lower=1, upper=K1> y1_train[NR1_train]; // ordinal outcome rater 1 training
   int<lower=1, upper=K2> y2_train[NR2_train]; // ordinal outcome rater 2 training
   int<lower=1, upper=K3> y3_train[NR3_train]; // ordinal outcome rater 3 training
