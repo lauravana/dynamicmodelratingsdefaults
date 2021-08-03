@@ -1,0 +1,381 @@
+---
+title: |
+  | Supplementary material: Dynamic modeling of corporate credit ratings and defaults
+  | Analysis of synthetic data
+author: "Laura Vana"
+output: 
+  pdf_document:
+      toc: true
+header-includes:
+  - \usepackage{multicol}
+  - \usepackage{float} 
+  - \usepackage{tabularx}  
+  - \usepackage{longtable} 
+
+---
+
+# Data set
+
+The synthetic data set `synthetic_dat.rda` has been generated using 
+the **synthpop** R package (Nowok et. al, 2016) by replacing all observations
+with values simulated from probability distributions specified to 
+preserve key features of the actual observed data.
+
+The data set contains 19952 rows and 13 columns:
+
+* `firm_id`: integer containing the firm id, maximum is 2528
+
+* `year_id`: integer containing the year id, maximum is 19
+
+* `R1`: integer corresponding to the rating classes assigned by rater 1
+
+* `R2`: integer corresponding to the rating classes assigned by rater 2
+
+* `R3`: integer corresponding to the rating classes assigned by rater 3
+
+* `D` : binary indicator for default
+
+* `X1` to `X7`: standardized covariates.
+
+# Estimating the models -- full sample and out-of-time 
+
+```{r}
+nchains <- 5
+niter <- 2000L
+
+########################################################
+########################################################
+### CODE FOR ESTIMATION WITH rstan ON SYNTHETIC DATA ###
+########################################################
+########################################################
+library(rstan)
+library(coda)
+
+## ----load_data-------------------------------------------------------------------
+load("synthetic_dat.rda")
+dat <- synthetic_dat
+
+take.subsample <- TRUE
+
+if (take.subsample) {
+  set.seed(123)
+  firm_ids_small <- sample(unique(dat$firm_id), 100)
+  dat <- subset(dat, firm_id %in% firm_ids_small)
+}
+
+## ---------------- stan_models ----------------------
+models <- list(
+  list(## Model S1
+    model = "../Stan/Model_S1_logit_priors-eps-N_bias-0.stan",
+    pars  = c("beta", "beta0",
+              "theta1", "theta2", "theta3",
+              "psi", 
+              "log_lik_all", 
+              "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")),
+  list(## Model S2
+    model = "../Stan/Model_S2_logit_priors-eps-N_bias-diffgammas.stan",
+    pars  = c("beta", "gamma1", "gamma2", "gamma3",  "beta0", 
+              "theta1", "theta2", "theta3",
+              "psi",
+              "log_lik_all", 
+              "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")),
+  list(## Model D1
+    model = "../Stan/Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0.stan",
+    pars  = c("beta", "beta0", 
+              "theta1", "theta2", "theta3",
+              "q2",
+              "b", "omega", "phi",
+              "rho", "psi",
+              "log_lik_all", 
+              "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+    )),
+  list(## Model D2
+    model = "../Stan/Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas.stan",
+    pars  = c("beta", "gamma1", "gamma2", "gamma3",  "beta0",
+              "theta1", "theta2", "theta3",
+              "q2", 
+              "b", "omega", "phi", 
+              "rho", "psi",
+              "log_lik_all", 
+              "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
+    )),
+  list(## Model PM
+    model = "../Stan/Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1.stan",
+    pars  = c("beta", "gamma1", "gamma2", "gamma3", "beta0",
+              "theta1", "theta2", "theta3",
+              "q2", 
+              "b", "omega", "phi",
+              "rho", "psi",
+              "delta", "lambda", "phidelta",
+              "log_lik_all", 
+              "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test")))
+
+
+##############################
+### OUT OF SAMPLE ANALYSIS ###
+##############################
+# for the one step ahead out of sample exercise, we train the model on the
+# data containing years 1 : t and check the log predictive 
+# likelihoods for the following year t + 1
+
+end_of_training_samples <- 19
+number_of_models        <- length(models)
+for (t in 13:end_of_training_samples) {
+  for (s in seq_len(number_of_models)){
+    # select only observations in years 1:(t + 1)
+    dat_tmp <- subset(dat, year_id %in% seq_len(t + 1))
+    dat_tmp$firm_id <- as.numeric(factor(dat_tmp$firm_id))
+    
+    id_train <- which(dat_tmp$year_id <= t)
+    id_test  <- which(dat_tmp$year_id ==  t + 1)
+    
+    N1 <- length(id_train)
+    N2 <- length(id_test)
+    
+    # matrix of ratings in training sample
+    y_train <- dat_tmp[id_train, c("R1", "R2", "R3")]
+    # matrix of ratings in test sample
+    y_test  <- dat_tmp[id_test,  c("R1", "R2", "R3")]
+    
+    begin_eps <- seq_len(N1 + N2)[!duplicated(dat_tmp$firm_id)]
+    end_eps   <- c(begin_eps[-1] - 1, N1 + N2)
+    
+    DATA <- list(
+      N             = N1 + N2, 
+      N1            = N1, 
+      N2            = N2,
+      NR1_train     = sum(!is.na(y_train[, 1])),
+      NR2_train     = sum(!is.na(y_train[, 2])),
+      NR3_train     = sum(!is.na(y_train[, 3])),
+      NR1_test      = sum(!is.na(y_test[, 1])),
+      NR2_test      = sum(!is.na(y_test[, 2])),
+      NR3_test      = sum(!is.na(y_test[, 3])),
+      P             = 7,  
+      J             = 3,
+      I             = length(unique(dat_tmp$firm_id)),
+      T             = max(dat_tmp$year_id),
+      id_test       = N1 + seq_len(N2),
+      begin_eps     = begin_eps,
+      end_eps       = end_eps,
+      firm_id       = dat_tmp$firm_id,
+      firm_id_train = dat_tmp$firm_id[id_train],
+      firm_id_test  = dat_tmp$firm_id[id_test],
+      year_id       = dat_tmp$year_id,
+      year_id_train = dat_tmp$year_id[id_train],
+      year_id_test  = dat_tmp$year_id[id_test],
+      id_obs_R1_train = which(!is.na(y_train[, 1])),
+      id_obs_R2_train = which(!is.na(y_train[, 2])),
+      id_obs_R3_train = which(!is.na(y_train[, 3])),
+      id_obs_R1_test  = which(!is.na(y_test[, 1])),
+      id_obs_R2_test  = which(!is.na(y_test[, 2])),
+      id_obs_R3_test  = which(!is.na(y_test[, 3])),
+      K1 = max(y_train[, 1], na.rm = TRUE),
+      K2 = max(y_train[, 2], na.rm = TRUE),
+      K3 = max(y_train[, 3], na.rm = TRUE),
+      prior_counts_R1 = table(y_train[!is.na(y_train[, 1]), 1]),
+      prior_counts_R2 = table(y_train[!is.na(y_train[, 2]), 2]),
+      prior_counts_R3 = table(y_train[!is.na(y_train[, 3]), 3]),
+      y1_train = y_train[!is.na(y_train[, 1]), 1],
+      y2_train = y_train[!is.na(y_train[, 2]), 2],
+      y3_train = y_train[!is.na(y_train[, 3]), 3],
+      y1_test = y_test[!is.na(y_test[, 1]), 1],
+      y2_test = y_test[!is.na(y_test[, 2]), 2],
+      y3_test = y_test[!is.na(y_test[, 3]), 3],
+      D_train = dat_tmp$D[id_train], 
+      D_test  = dat_tmp$D[id_test],
+      x_train = dat_tmp[id_train, grep("X", colnames(dat_tmp))], 
+      x_test  = dat_tmp[id_test , grep("X", colnames(dat_tmp))]
+    )
+    # ------------- prepare files and folders ---------------       
+    model_name <- gsub("Stan/", "", gsub("\\..*", "", models[[s]][["model"]]))
+    res_folder <- "Results_Synthetic_Data"
+    pars <-  models[[s]][["pars"]]
+    if (!dir.exists(res_folder)) dir.create(res_folder, recursive = TRUE)
+    if (t == max(dat$year_id)) {
+      file_out <- paste0(res_folder, "/", sprintf("results_%s_fullsample.rda", model_name))
+      pars <- gsub("_test", "", pars)
+    } else {
+      file_out <- paste0(res_folder, "/", sprintf("OOS_results_%s_testperiod_%i.rda", model_name, t + 1))
+    }
+    # ------------- analysis -------------
+    fit <- stan(file = models[[s]][["model"]],
+                pars = models[[s]][["pars"]],
+                data = DATA, 
+                chains = nchains, 
+                iter = niter,
+                save_warmup = FALSE, 
+                control=list(adapt_delta = 0.99))
+    
+    save(fit, file = file_out)
+  }
+}
+
+```
+
+## Computing the LOO values
+
+
+```{r}
+models <- c(
+  "Model_S1_logit_priors-eps-N_bias-0",
+  "Model_S2_logit_priors-eps-N_bias-diffgammas",
+  "Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0",
+  "Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas",
+  "Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1"
+)
+loo_list <- list()
+i <- 0
+for (m in models) {
+  i <- i + 1
+  load(sprintf("Results_Synthetic_Data/results_%s_fullsample.rda", m))
+  ll <- loo::extract_log_lik(fit, parameter_name = "log_lik_all")
+  loo_list[[i]] <- loo::loo(ll, k_threshold=0.7)
+}
+loo::loo_compare(loo_list)
+```
+
+## Out-of-time measures
+
+We perform the one step ahead out-of time analysis. We compute the joint log predictive densities, as well as the measures based on the conditional PDs.
+
+```{r}
+models <- c(
+  "Model_S1_logit_priors-eps-N_bias-0",
+  "Model_S2_logit_priors-eps-N_bias-diffgammas",
+  "Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0",
+  "Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas",
+  "Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1"
+)
+
+#---------------------
+test_period <- 13:19
+
+
+
+## Compute log predictive density 
+lppd <- lapply(models, function(x) {
+  sapply(seq_along(test_period), function(ti){
+    FILE <- sprintf("Results_Synthetic_Data/OOS_results_%s_testperiod_%i.rda", 
+                    x, test_period[ti])
+    print(FILE)
+    load(FILE)
+    dat_test <- data_ordinal[year_id %in% test_period[ti], ] 
+    log_lik_D <- extract(fit123, pars = "log_lik_D_test")[[1]]
+    
+    log_lik_S_with_NA <- log_lik_M_with_NA <- log_lik_F_with_NA <-
+      matrix(0, ncol = ncol(log_lik_D), nrow = nrow(log_lik_D))
+    
+    log_lik_S <- extract(fit123, pars = "log_lik_R1_test")[[1]]
+    log_lik_M <- extract(fit123, pars = "log_lik_R2_test")[[1]]
+    log_lik_F <- extract(fit123, pars = "log_lik_R3_test")[[1]]
+    
+    log_lik_S_with_NA[, !is.na(dat_test$SPR)] <- log_lik_S
+    log_lik_M_with_NA[, !is.na(dat_test$Moodys)] <- log_lik_M
+    log_lik_F_with_NA[, !is.na(dat_test$Fitch)] <- log_lik_F
+    
+    log_lik_all <- log_lik_D + log_lik_S_with_NA + log_lik_M_with_NA + log_lik_F_with_NA
+    
+    log_pred_all <- mean(log(colMeans(exp(log_lik_all))))
+
+    log_pred_D   <- mean(log(colMeans(exp(log_lik_D))))
+    
+    log_pred_S   <- mean(log(colMeans(exp(log_lik_S))))
+    log_pred_M   <- mean(log(colMeans(exp(log_lik_M))))
+    log_pred_F   <- mean(log(colMeans(exp(log_lik_F))))
+    res <- c(log_pred_all,
+             log_pred_D, log_pred_S,
+             log_pred_M, log_pred_F)
+    return(res)
+  })
+})
+
+names(lppd) <- models
+save(lppd, file = "Results_Synthetic_Data/lppd_1ahead.rds")
+
+conditional_probabilities <- lapply(models, function(x) {
+  sapply(seq_along(test_period), function(ti){
+    FILE <- sprintf("Results_Synthetic_Data/OOS_results_%s_testperiod_%i.rda", 
+                    x, test_period[ti])
+    print(FILE)
+    load(FILE)
+    dat_test <- dat[year_id %in% test_period[ti], ] 
+    
+    log_lik_D <- extract(fit123, pars = "log_lik_D_test")[[1]]
+    
+    log_lik_S_with_NA <- log_lik_M_with_NA <- log_lik_F_with_NA <-
+      matrix(0, ncol = ncol(log_lik_D), nrow = nrow(log_lik_D))
+    
+    log_lik_S <- extract(fit123, pars = "log_lik_R1_test")[[1]]
+    log_lik_M <- extract(fit123, pars = "log_lik_R2_test")[[1]]
+    log_lik_F <- extract(fit123, pars = "log_lik_R3_test")[[1]]
+    
+    log_lik_S_with_NA[, !is.na(dat_test$SPR)] <- log_lik_S
+    log_lik_M_with_NA[, !is.na(dat_test$Moodys)] <- log_lik_M
+    log_lik_F_with_NA[, !is.na(dat_test$Fitch)] <- log_lik_F
+    
+    log_lik_rat <-  log_lik_S_with_NA + log_lik_M_with_NA + log_lik_F_with_NA
+    
+    
+    D_tmp <- dat_test$D
+    # ---------
+    #  Compute P(D=1, S, M, F)
+    # ---------
+    # Compute log  P(D=1)
+    ## P(D=1|zeta)
+    probs_D <- exp(log_lik_D)
+    probs_D[, D_tmp == 0] <- 1 - probs_D[, D_tmp == 0]
+    probs_D[probs_D == 0] <- .Machine$double.eps
+    probs_D[probs_D == 1] <- 1 - .Machine$double.eps
+    log_lik_D_1 <- log(probs_D)
+    
+    log_prob_all <- (log_lik_D_1 + log_lik_rat)
+    # ---------
+    #  Compute P(S, M, F)
+    # ---------
+    apply(log_prob_all, 2, logmeanexp)
+    prob_rat <- exp(log_lik_rat)
+    log_pd_conditional <- apply(log_prob_all, 2, logmeanexp) - apply(log_lik_rat, 2, logmeanexp) 
+    return(log_pd_conditional)
+  })
+})
+    
+
+
+
+res_BR <- sapply(conditional_probabilities, 
+                  function(y) {
+                    tab <- sapply(seq_along(test_period), function(ti){ 
+                      lp <- y[[ti]]
+                      D_test <-  dat[year_id %in% test_period[ti], "D"] 
+                      mean((exp(lp) - D_test)^2) 
+                    })
+                    tab
+                  })
+
+
+
+## Area under precision-recall curve
+if (!require("PRROC")) install.packages("PRROC"); library("PRROC")
+res_AUC_PRAR <- sapply(conditional_probabilities, 
+                 function(y) {
+                   tab <- sapply(seq_along(test_period), function(ti){ 
+                     lp <- y[[ti]]
+                     D_test <- dat[year_id %in% test_period[ti], "D"] 
+                     pr.curve(scores.class0 = lp[D_test==1], scores.class1 = lp[D_test==0],
+                              curve = FALSE)$auc.integral
+                     
+                   })
+                   tab
+                 })
+
+
+colnames(res_BR) <- colnames(res_AUC_PRAR) <-  models
+
+save(res_BR, res_AUC_PRAR, file = "Results_Synthetic_Data/pd_cond_measures_1ahead.rda")
+```
+
+
+
+
+#  References
+
