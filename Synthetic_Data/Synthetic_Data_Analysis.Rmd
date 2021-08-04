@@ -13,6 +13,13 @@ header-includes:
   - \usepackage{longtable} 
 
 ---
+```{r helper}
+logmeanexp <- function (x) {
+  mx <- max(x)
+  m <- mx+log(mean(exp(x-mx)))
+  m
+} 
+```
 
 # Data set
 
@@ -58,8 +65,14 @@ dat <- synthetic_dat
 take.subsample <- TRUE
 
 if (take.subsample) {
+  ## take only p% of the firms 
+  p <- 0.1
   set.seed(123)
-  firm_ids_small <- sample(unique(dat$firm_id), 100)
+  nfirms <- length(unique(dat$firm_id))
+  firms_def_1 <- unique(dat$firm_id[dat$D == 1])
+  firms_def_0 <- unique(dat$firm_id[dat$D == 0])
+  firm_ids_small <- c(sample(firms_def_1, p * length(firms_def_1)),
+                      sample(firms_def_0, p * length(firms_def_0)))
   dat <- subset(dat, firm_id %in% firm_ids_small)
 }
 
@@ -84,7 +97,7 @@ models <- list(
     pars  = c("beta", "beta0", 
               "theta1", "theta2", "theta3",
               "q2",
-              "b", "omega", "phi",
+              "b", "omega", "phib",
               "rho", "psi",
               "log_lik_all", 
               "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
@@ -94,7 +107,7 @@ models <- list(
     pars  = c("beta", "gamma1", "gamma2", "gamma3",  "beta0",
               "theta1", "theta2", "theta3",
               "q2", 
-              "b", "omega", "phi", 
+              "b", "omega", "phib", 
               "rho", "psi",
               "log_lik_all", 
               "log_lik_D_test", "log_lik_R1_test", "log_lik_R2_test", "log_lik_R3_test"
@@ -104,7 +117,7 @@ models <- list(
     pars  = c("beta", "gamma1", "gamma2", "gamma3", "beta0",
               "theta1", "theta2", "theta3",
               "q2", 
-              "b", "omega", "phi",
+              "b", "omega", "phib",
               "rho", "psi",
               "delta", "lambda", "phidelta",
               "log_lik_all", 
@@ -118,10 +131,11 @@ models <- list(
 # data containing years 1 : t and check the log predictive 
 # likelihoods for the following year t + 1
 
-end_of_training_samples <- 19
+end_of_training_samples <- max(dat$year_id)
 number_of_models        <- length(models)
 for (t in 13:end_of_training_samples) {
   for (s in seq_len(number_of_models)){
+    print(c(t, s))
     # select only observations in years 1:(t + 1)
     dat_tmp <- subset(dat, year_id %in% seq_len(t + 1))
     dat_tmp$firm_id <- as.numeric(factor(dat_tmp$firm_id))
@@ -172,9 +186,6 @@ for (t in 13:end_of_training_samples) {
       K1 = max(y_train[, 1], na.rm = TRUE),
       K2 = max(y_train[, 2], na.rm = TRUE),
       K3 = max(y_train[, 3], na.rm = TRUE),
-      prior_counts_R1 = table(y_train[!is.na(y_train[, 1]), 1]),
-      prior_counts_R2 = table(y_train[!is.na(y_train[, 2]), 2]),
-      prior_counts_R3 = table(y_train[!is.na(y_train[, 3]), 3]),
       y1_train = y_train[!is.na(y_train[, 1]), 1],
       y2_train = y_train[!is.na(y_train[, 2]), 2],
       y3_train = y_train[!is.na(y_train[, 3]), 3],
@@ -187,7 +198,7 @@ for (t in 13:end_of_training_samples) {
       x_test  = dat_tmp[id_test , grep("X", colnames(dat_tmp))]
     )
     # ------------- prepare files and folders ---------------       
-    model_name <- gsub("Stan/", "", gsub("\\..*", "", models[[s]][["model"]]))
+    model_name <- gsub("\\..*", "",  gsub("../Stan/", "", models[[s]][["model"]]))
     res_folder <- "Results_Synthetic_Data"
     pars <-  models[[s]][["pars"]]
     if (!dir.exists(res_folder)) dir.create(res_folder, recursive = TRUE)
@@ -223,6 +234,7 @@ models <- c(
   "Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas",
   "Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1"
 )
+
 loo_list <- list()
 i <- 0
 for (m in models) {
@@ -231,7 +243,8 @@ for (m in models) {
   ll <- loo::extract_log_lik(fit, parameter_name = "log_lik_all")
   loo_list[[i]] <- loo::loo(ll, k_threshold=0.7)
 }
-loo::loo_compare(loo_list)
+loo_syn_data <- loo::loo_compare(loo_list)
+loo_syn_data
 ```
 
 ## Out-of-time measures
@@ -239,16 +252,8 @@ loo::loo_compare(loo_list)
 We perform the one step ahead out-of time analysis. We compute the joint log predictive densities, as well as the measures based on the conditional PDs.
 
 ```{r}
-models <- c(
-  "Model_S1_logit_priors-eps-N_bias-0",
-  "Model_S2_logit_priors-eps-N_bias-diffgammas",
-  "Model_D1_logit_priors-a-HN-b-AR1-eps-AR1_bias-0",
-  "Model_D2_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffgammas",
-  "Model_PM_logit_priors-a-HN-b-AR1-eps-AR1_bias-diffbetas-delta-AR1"
-)
-
 #---------------------
-test_period <- 13:19
+test_period <- 14:19
 
 
 
@@ -259,15 +264,15 @@ lppd <- lapply(models, function(x) {
                     x, test_period[ti])
     print(FILE)
     load(FILE)
-    dat_test <- data_ordinal[year_id %in% test_period[ti], ] 
-    log_lik_D <- extract(fit123, pars = "log_lik_D_test")[[1]]
+    dat_test <- dat[dat$year_id %in% test_period[ti], ] 
+    log_lik_D <- extract(fit, pars = "log_lik_D_test")[[1]]
     
     log_lik_S_with_NA <- log_lik_M_with_NA <- log_lik_F_with_NA <-
       matrix(0, ncol = ncol(log_lik_D), nrow = nrow(log_lik_D))
     
-    log_lik_S <- extract(fit123, pars = "log_lik_R1_test")[[1]]
-    log_lik_M <- extract(fit123, pars = "log_lik_R2_test")[[1]]
-    log_lik_F <- extract(fit123, pars = "log_lik_R3_test")[[1]]
+    log_lik_S <- extract(fit, pars = "log_lik_R1_test")[[1]]
+    log_lik_M <- extract(fit, pars = "log_lik_R2_test")[[1]]
+    log_lik_F <- extract(fit, pars = "log_lik_R3_test")[[1]]
     
     log_lik_S_with_NA[, !is.na(dat_test$SPR)] <- log_lik_S
     log_lik_M_with_NA[, !is.na(dat_test$Moodys)] <- log_lik_M
@@ -298,16 +303,16 @@ conditional_probabilities <- lapply(models, function(x) {
                     x, test_period[ti])
     print(FILE)
     load(FILE)
-    dat_test <- dat[year_id %in% test_period[ti], ] 
+    dat_test <- dat[dat$year_id %in% test_period[ti], ] 
     
-    log_lik_D <- extract(fit123, pars = "log_lik_D_test")[[1]]
+    log_lik_D <- extract(fit, pars = "log_lik_D_test")[[1]]
     
     log_lik_S_with_NA <- log_lik_M_with_NA <- log_lik_F_with_NA <-
       matrix(0, ncol = ncol(log_lik_D), nrow = nrow(log_lik_D))
     
-    log_lik_S <- extract(fit123, pars = "log_lik_R1_test")[[1]]
-    log_lik_M <- extract(fit123, pars = "log_lik_R2_test")[[1]]
-    log_lik_F <- extract(fit123, pars = "log_lik_R3_test")[[1]]
+    log_lik_S <- extract(fit, pars = "log_lik_R1_test")[[1]]
+    log_lik_M <- extract(fit, pars = "log_lik_R2_test")[[1]]
+    log_lik_F <- extract(fit, pars = "log_lik_R3_test")[[1]]
     
     log_lik_S_with_NA[, !is.na(dat_test$SPR)] <- log_lik_S
     log_lik_M_with_NA[, !is.na(dat_test$Moodys)] <- log_lik_M
@@ -346,7 +351,7 @@ res_BR <- sapply(conditional_probabilities,
                   function(y) {
                     tab <- sapply(seq_along(test_period), function(ti){ 
                       lp <- y[[ti]]
-                      D_test <-  dat[year_id %in% test_period[ti], "D"] 
+                      D_test <-  dat[dat$year_id %in% test_period[ti], "D"] 
                       mean((exp(lp) - D_test)^2) 
                     })
                     tab
@@ -360,7 +365,7 @@ res_AUC_PRAR <- sapply(conditional_probabilities,
                  function(y) {
                    tab <- sapply(seq_along(test_period), function(ti){ 
                      lp <- y[[ti]]
-                     D_test <- dat[year_id %in% test_period[ti], "D"] 
+                     D_test <- dat[dat$year_id %in% test_period[ti], "D"] 
                      pr.curve(scores.class0 = lp[D_test==1], scores.class1 = lp[D_test==0],
                               curve = FALSE)$auc.integral
                      
@@ -374,6 +379,15 @@ colnames(res_BR) <- colnames(res_AUC_PRAR) <-  models
 save(res_BR, res_AUC_PRAR, file = "Results_Synthetic_Data/pd_cond_measures_1ahead.rda")
 ```
 
+```{r}
+id_years <- seq_along(test_period)
+lppd <- lapply(lppd, function(x) x[c(1),,drop=FALSE ])
+tab_loo <- t(loo_syn_data[,1:2])[,paste0("model", 1:5)]
+tab <- rbind(sapply(lppd, function(x) rowMeans(x[, id_years,drop=F])),
+             apply(sqrt(res_BR), 2, function(x) mean(x[id_years])),
+              apply(res_AUC_PRAR, 2, function(x) mean(x[id_years], na.rm = TRUE)))
+tab
+```
 
 
 
