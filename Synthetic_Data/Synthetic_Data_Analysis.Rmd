@@ -76,6 +76,9 @@ if (take.subsample) {
   dat <- subset(dat, firm_id %in% firm_ids_small)
 }
 
+res_folder <- "Results_Synthetic_Data"
+if (!dir.exists(res_folder)) dir.create(res_folder)
+ 
 ## ---------------- stan_models ----------------------
 models <- list(
   list(## Model S1
